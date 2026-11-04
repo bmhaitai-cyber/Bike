@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>지도 테스트</title>
+<style>
+:root{--ink:#eaf6fb;--dim:#9fb6c0;--panel:rgba(10,22,30,.85);--line:rgba(120,190,215,.3);--cyan:#3fd0ff;color-scheme:dark}
+html,body{height:100%;margin:0;background:#0b1418;color:var(--ink);font:14px/1.5 "Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;overflow:hidden}
+#vmap{position:fixed;inset:0}
+#panel{position:fixed;left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));top:max(10px,env(safe-area-inset-top));z-index:10;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;max-height:45vh;overflow:auto}
+.row{display:flex;flex-wrap:wrap;gap:6px}
+button{font:inherit;color:#062230;background:var(--cyan);border:0;border-radius:8px;padding:7px 10px;font-weight:700}
+button.g{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:600}
+#log{font:11px/1.45 ui-monospace,Menlo,monospace;color:var(--dim);white-space:pre-wrap;word-break:break-all}
+#log b{color:#ff9b7a}
+</style>
+<script>
+window.__logs=[];
+function L(s,err){window.__logs.push((err?'❗ ':'')+s);var el=document.getElementById('log');if(el)el.textContent=window.__logs.slice(-40).join('\n');}
+window.addEventListener('error',function(e){L('오류: '+e.message+' @ '+(e.filename||'').split('/').pop().slice(0,60)+':'+e.lineno+':'+e.colno,true);});
+window.addEventListener('unhandledrejection',function(e){L('비동기 오류: '+(e.reason&&e.reason.message||e.reason),true);});
+window.__VKEY='7C8F81B9-03D4-4C8A-83D2-17ADCB192B98';
+document.write('<script src="https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey='+window.__VKEY+'"><\/script>');
+</script>
+</head>
+<body>
+<div id="vmap"></div>
+<div id="panel">
+  <div class="row">
+    <button data-go="37.5181,126.6762">서구 가정동</button>
+    <button data-go="37.4896,126.7238">부평역</button>
+    <button data-go="37.4127,126.6869">원인재역</button>
+    <button data-go="37.3862,126.6394">송도</button>
+  </div>
+  <div class="row">
+    <button class="g" id="low">도로 높이로</button>
+    <button class="g" id="high">위에서 보기</button>
+    <button class="g" id="sat">항공사진 직접 연결</button>
+    <button class="g" id="copy">로그 복사</button>
+  </div>
+  <div id="log">시작 중…</div>
+</div>
+<script>
+(function(){
+  var viewer=null,last=[37.5181,126.6762];
+  function getViewer(){try{return (typeof ws3d!=='undefined'&&ws3d&&ws3d.viewer)?ws3d.viewer:null;}catch(e){return null;}}
+  if(typeof vw==='undefined'){L('브이월드 스크립트가 로드되지 않았어요 (키 또는 주소 등록 문제)',true);return;}
+  L('브이월드 스크립트 로드됨. Cesium '+(window.Cesium?Cesium.VERSION:'없음'));
+  var nav=/nav=0/.test(location.search)?false:true;
+  try{
+    var map=new vw.Map();
+    map.setOption({mapId:'vmap',initPosition:new vw.CameraPosition(new vw.CoordZ(126.6762,37.5181,1500),new vw.Direction(0,-60,0)),logo:true,navigation:nav});
+    L('setOption 완료 (navigation='+nav+')');
+    map.start();
+    L('map.start() 완료');
+  }catch(e){L('map.start 오류: '+e.message+'\n'+(e.stack||'').split('\n').slice(0,4).join('\n'),true);}
+  vw.ws3dInitCallBack=function(){L('ws3dInitCallBack 호출됨');};
+  var t=0,iv=setInterval(function(){
+    t++;viewer=getViewer();
+    if(viewer&&viewer.scene){
+      clearInterval(iv);L('viewer 찾음 ('+(t*0.25).toFixed(1)+'초)');
+      report();setTimeout(report,5000);setTimeout(report,15000);
+    }else if(t>120){clearInterval(iv);L('20초 동안 viewer를 못 찾았어요',true);}
+  },250);
+  function report(){
+    try{
+      var s=viewer.scene,il=viewer.imageryLayers,prims=s.primitives,ts=0,tl=0;
+      for(var i=0;i<prims.length;i++){var p=prims.get(i);if(p instanceof Cesium.Cesium3DTileset){ts++;if(p.tilesLoaded)tl++;}}
+      L('항공사진 레이어 '+il.length+'개, 3D 타일셋 '+ts+'개(로드완료 '+tl+'), 지형 '+(viewer.terrainProvider&&viewer.terrainProvider.constructor&&viewer.terrainProvider.constructor.name)+', 지구 타일 로드 '+s.globe.tilesLoaded);
+    }catch(e){L('상태 확인 오류: '+e.message,true);}
+  }
+  function go(lat,lon,h,pitch){
+    if(!viewer){L('아직 지도가 준비되지 않았어요',true);return;}
+    last=[lat,lon];
+    viewer.camera.setView({destination:Cesium.Cartesian3.fromDegrees(lon,lat-(h>200?0.004:0.00004),h),orientation:{heading:0,pitch:Cesium.Math.toRadians(pitch),roll:0}});
+    setTimeout(report,4000);
+  }
+  document.querySelectorAll('[data-go]').forEach(function(b){b.onclick=function(){var p=b.dataset.go.split(',').map(Number);go(p[0],p[1],600,-45);};});
+  document.getElementById('high').onclick=function(){go(last[0],last[1],600,-45);};
+  document.getElementById('low').onclick=function(){
+    if(!viewer)return;var h=viewer.scene.globe.getHeight(Cesium.Cartographic.fromDegrees(last[1],last[0]));
+    L('지면 높이: '+(h==null?'모름':h.toFixed(1)+'m'));go(last[0],last[1],(h||20)+3,-8);};
+  document.getElementById('sat').onclick=function(){
+    if(!viewer)return;
+    try{
+      var url='https://api.vworld.kr/req/wmts/1.0.0/'+window.__VKEY+'/Satellite/{z}/{y}/{x}.jpeg';
+      var prov=new Cesium.UrlTemplateImageryProvider({url:url,maximumLevel:19,credit:'VWorld'});
+      if(prov.errorEvent)prov.errorEvent.addEventListener(function(e){L('항공사진 타일 오류: '+(e&&e.message),true);});
+      viewer.imageryLayers.addImageryProvider(prov);
+      L('항공사진(Satellite) 직접 연결함');setTimeout(report,3000);
+    }catch(e){L('항공사진 연결 실패: '+e.message,true);}
+  };
+  document.getElementById('copy').onclick=function(){var t=window.__logs.join('\n');(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){L('로그 복사됨');},function(){L('복사 실패: 화면을 캡처해 주세요');});};
+})();
+</script>
+</body>
+</html>
